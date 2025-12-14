@@ -28,7 +28,7 @@ asc_sample/tools/
 - **注意**：Windows 端通常不具备 `atc`，因此工具会自动跳过 ATC/OM/ACL 校验阶段。
 
 #### 2.2 Linux + Ascend（用于 ATC 转 OM 与可选 ACL 校验）
-- **必需**：`atc` 可用（`atc --version` 正常）
+- **必需**：`atc` 可用（不同镜像的 `atc` 可能不支持 `--version`，建议用 `atc --help | head` 或读取 `ascend_toolkit_install.info` 确认版本）
 - **导出 ONNX 仍需要**：`torch` + `torchvision` + `onnx`
 - **ONNX 校验需要**：`onnxruntime`（如果你板上 ORT 不完整，可关闭 Validate ONNX）
 - **OM 校验需要**：`acl` Python 包可导入（`python -c "import acl"`）
@@ -55,6 +55,8 @@ asc_sample/tools/
 - **Input size**：与训练/预处理一致（例如 `384`）
 - **OPSET**：默认 `17`，若遇到导出/兼容问题，脚本会自动尝试降级（17→16→15→14→13）
 - **Dynamic axes**：若你准备固定输入，建议关闭（更容易 `atc`）
+- **启用混合精度（内部FP16/FP32）**：勾选后会自动给 `atc` 添加 `--precision_mode=allow_mix_precision`（常用于加速；推荐保持 I/O 为 FP32）
+- **编译前先做ATC预检查**：勾选后会在真正编译前调用 `atc --mode=3` 预检查，提前发现不支持算子/shape 等问题
 
 #### 3.3 Step C：可选校验（建议按环境选择）
 - **Validate ONNX**：比较 PyTorch vs ONNX 输出
@@ -66,10 +68,14 @@ asc_sample/tools/
 工具内部会调用类似命令：
 ```bash
 atc --model=xxx.onnx --framework=5 --output=xxx \
-    --input_format=NCHW --input_shape=input:1,4,384,384 \
+    --input_format=NCHW --input_shape=input:<batch>,<in_ch>,<img>,<img> \
     --output_type=FP32 --soc_version=Ascend310B1 \
     --op_select_implmode=high_precision
 ```
+
+可选加速/排障参数（可填在 “ATC额外参数”）：
+- `--precision_mode=allow_mix_precision`：内部混合精度（常见提速手段）
+- `--log=info`：输出更多编译日志，便于定位失败原因
 
 ---
 
@@ -82,6 +88,9 @@ atc --model=xxx.onnx --framework=5 --output=xxx \
 - 为了方便新手，PTQ 页提供两种模式：
   - **简易模式（默认）**：选择量化工具（目前内置 `amct_onnx`）+ 填路径即可，界面会自动拼出命令并展示“命令预览”。
   - **高级模式**：允许自定义“量化命令模板”（适配不同量化工具或参数习惯）。
+- PTQ 页新增 **量化方式**（无命令行也能用）：
+  - **运行量化工具生成量化ONNX（推荐）**：在设备上存在量化工具时使用（例如已安装 `amct_onnx`）。
+  - **我已有量化ONNX（跳过量化）**：当边缘定制镜像缺少 AMCT/你不想写命令行时使用——你只需选择“量化ONNX输入”，工具会直接执行 `atc` 编译生成 OM。
 - 若你的镜像/环境中 **没有 `amct_onnx`**：
   - 建议在设备上安装 AMCT(ONNX) 组件后再用“简易模式”；或
   - 直接切换到**高级模式**，调用你已有的量化工具命令。
